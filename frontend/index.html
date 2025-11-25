@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Network Cutover Wizard MVP</title>
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      margin: 20px;
+      background: #f5f5f5;
+    }
+    h1, h2 {
+      margin-bottom: 0.5rem;
+    }
+    .card {
+      background: white;
+      padding: 1rem;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+      margin-bottom: 1rem;
+    }
+    label {
+      display: block;
+      margin-top: 0.5rem;
+    }
+    input, select {
+      padding: 0.4rem;
+      width: 100%;
+      max-width: 400px;
+    }
+    button {
+      margin-top: 0.75rem;
+      padding: 0.5rem 1rem;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #2563eb;
+      color: white;
+      font-weight: 600;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: default;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 0.5rem;
+    }
+    th, td {
+      padding: 0.5rem;
+      border-bottom: 1px solid #ddd;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+    .status-pill {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+    }
+    .status-REGISTERED { background: #e5e7eb; }
+    .status-SCHEDULED  { background: #fbbf24; }
+    .status-PRECHECK_COMPLETE { background: #38bdf8; }
+    .status-IN_PROGRESS { background: #a855f7; color: white; }
+    .status-SUCCESS     { background: #22c55e; color: white; }
+    .status-FAILED      { background: #ef4444; color: white; }
+    pre {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 0.5rem;
+      border-radius: 4px;
+      font-size: 0.8rem;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <h1>Network Cutover Wizard (MVP)</h1>
+  <p>Register opportunities, start cutovers, and track prechecks / execution / validation.</p>
+
+  <div class="card">
+    <h2>1. Configure API</h2>
+    <label>
+      API Base URL (from Terraform output <code>api_base_url</code>):
+      <input id="api-url" />
+    </label>
+    <button onclick="saveApiUrl()">Save</button>
+    <p id="api-url-status"></p>
+  </div>
+
+  <div class="card">
+    <h2>2. Register Cutover Project</h2>
+    <label>
+      Name:
+      <input id="project-name" placeholder="VPC migration - customer A" />
+    </label>
+    <label>
+      Type:
+      <select id="project-type">
+        <option value="vpc-migration">VPC Migration</option>
+        <option value="subnet-change">Subnet Change</option>
+        <option value="firewall-update">Firewall Update</option>
+        <option value="vpn-change">VPN Change</option>
+        <option value="other">Other</option>
+      </select>
+    </label>
+    <label>
+      Pattern:
+      <select id="project-pattern">
+        <option value="standard-vpc-migration">Standard VPC Migration</option>
+        <option value="blue-green">Blue-Green Cutover</option>
+        <option value="firewall-rule-update">Firewall Rule Update</option>
+      </select>
+    </label>
+    <button id="create-project-btn" onclick="createProject()">Add Opportunity / Register Project</button>
+    <div id="create-project-result"></div>
+  </div>
+
+  <div class="card">
+    <h2>3. Projects & Cutover Dashboard</h2>
+    <button onclick="loadProjects()">Refresh Projects</button>
+    <div id="projects-container"></div>
+  </div>
+
+  <script>
+    let API_BASE_URL = localStorage.getItem("ncw_api_base_url") || "";
+
+    const apiUrlInput = document.getElementById("api-url");
+    const apiUrlStatus = document.getElementById("api-url-status");
+    apiUrlInput.value = API_BASE_URL;
+
+    function saveApiUrl() {
+      API_BASE_URL = apiUrlInput.value.trim();
+      localStorage.setItem("ncw_api_base_url", API_BASE_URL);
+      apiUrlStatus.textContent = API_BASE_URL ? "Saved!" : "Cleared.";
+    }
+
+    function getApi(urlPath) {
+      if (!API_BASE_URL) {
+        alert("Please set API Base URL first.");
+        throw new Error("No API base URL");
+      }
+      return `${API_BASE_URL}${urlPath}`;
+    }
+
+    async function createProject() {
+      const name = document.getElementById("project-name").value.trim();
+      const type = document.getElementById("project-type").value;
+      const pattern = document.getElementById("project-pattern").value;
+      const btn = document.getElementById("create-project-btn");
+      const resultDiv = document.getElementById("create-project-result");
+
+      if (!name) {
+        alert("Please enter a name.");
+        return;
+      }
+
+      btn.disabled = true;
+      resultDiv.textContent = "Creating project...";
+
+      try {
+        const resp = await fetch(getApi("/projects"), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, type, pattern }),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.error || "Failed to create");
+        }
+        resultDiv.innerHTML = `
+          <p>Created project <strong>${data.projectId}</strong></p>
+          <pre>${JSON.stringify(data.project, null, 2)}</pre>
+        `;
+        loadProjects();
+      } catch (e) {
+        resultDiv.textContent = "Error: " + e.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function loadProjects() {
+      const container = document.getElementById("projects-container");
+      container.textContent = "Loading...";
+
+      try {
+        const resp = await fetch(getApi("/projects"));
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.error || "Failed to load");
+        }
+        const projects = data.projects || [];
+        if (!projects.length) {
+          container.textContent = "No projects yet.";
+          return;
+        }
+
+        let html = "<table><thead><tr><th>Project</th><th>Type</th><th>Status</th><th>Steps</th><th>Actions</th></tr></thead><tbody>";
+        for (const p of projects) {
+          const steps = p.steps || {};
+          html += `
+            <tr>
+              <td>${p.name || ""}<br/><small>${p.projectId}</small></td>
+              <td>${p.type || ""}<br/><small>${p.pattern || ""}</small></td>
+              <td>
+                <span class="status-pill status-${(p.status || "REGISTERED").replace(/[^A-Za-z0-9]/g, "_")}">
+                  ${p.status || "REGISTERED"}
+                </span>
+              </td>
+              <td>
+                Precheck: ${steps.precheck || "PENDING"}<br/>
+                Execute: ${steps.execute || "PENDING"}<br/>
+                Validate: ${steps.validate || "PENDING"}
+              </td>
+              <td>
+                <button onclick="startCutover('${p.projectId}')">Start Cutover</button>
+                <button onclick="viewDetails('${p.projectId}')">View Details</button>
+              </td>
+            </tr>
+          `;
+        }
+        html += "</tbody></table>";
+        container.innerHTML = html;
+      } catch (e) {
+        container.textContent = "Error: " + e.message;
+      }
+    }
+
+    async function startCutover(projectId) {
+      if (!confirm(`Start cutover for project ${projectId}?`)) return;
+      try {
+        const resp = await fetch(getApi(`/projects/${projectId}/start`), {
+          method: "POST",
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Failed to start cutover");
+        alert("Cutover started! State Machine Execution:\n" + data.executionArn);
+        loadProjects();
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    }
+
+    async function viewDetails(projectId) {
+      try {
+        const resp = await fetch(getApi(`/projects/${projectId}`));
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || "Failed to load project");
+        alert(JSON.stringify(data, null, 2));
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    }
+
+    // Auto-load if API is configured
+    if (API_BASE_URL) {
+      loadProjects().catch(() => {});
+    }
+  </script>
+</body>
+</html>
