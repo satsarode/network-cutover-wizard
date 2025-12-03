@@ -281,6 +281,20 @@ resource "aws_apigatewayv2_stage" "default_stage" {
   auto_deploy = true
 }
 
+resource "aws_apigatewayv2_api" "http_api" {
+  name          = "ncw-http-api"
+  protocol_type = "HTTP"
+
+  cors_configuration {
+    allow_credentials = false
+    allow_headers     = ["content-type"]
+    allow_methods     = ["GET", "OPTIONS", "POST"]
+    allow_origins     = ["*"]
+    expose_headers    = []
+    max_age           = 0
+  }
+}
+
 #########################
 # Permissions: API -> Lambda
 #########################
