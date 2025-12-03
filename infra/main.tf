@@ -235,6 +235,14 @@ resource "aws_sfn_state_machine" "cutover_state_machine" {
 resource "aws_apigatewayv2_api" "http_api" {
   name          = "ncw-http-api"
   protocol_type = "HTTP"
+  cors_configuration {
+    allow_credentials = false
+    allow_headers     = ["content-type"]
+    allow_methods     = ["GET", "OPTIONS", "POST"]
+    allow_origins     = ["*"]
+    expose_headers    = []
+    max_age           = 0
+  }  
 }
 
 resource "aws_apigatewayv2_integration" "lambda_integration" {
@@ -279,20 +287,6 @@ resource "aws_apigatewayv2_stage" "default_stage" {
   api_id      = aws_apigatewayv2_api.http_api.id
   name        = "$default"
   auto_deploy = true
-}
-
-resource "aws_apigatewayv2_api" "http_api" {
-  name          = "ncw-http-api"
-  protocol_type = "HTTP"
-
-  cors_configuration {
-    allow_credentials = false
-    allow_headers     = ["content-type"]
-    allow_methods     = ["GET", "OPTIONS", "POST"]
-    allow_origins     = ["*"]
-    expose_headers    = []
-    max_age           = 0
-  }
 }
 
 #########################
